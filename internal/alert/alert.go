@@ -1,85 +1,86 @@
-// Package alert provides alerting mechanisms for unexpected open ports.
+// Package alert evaluates scan results against a baseline and notifies on changes.
 package alert
 
 import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
-	"time"
-
-	"github.com/user/portwatch/internal/baseline"
+	"sort"
 )
 
-// Level represents the severity of an alert.
-type Level string
-
-const (
-	LevelInfo  Level = "INFO"
-	LevelWarn  Level = "WARN"
-	LevelError Level = "ERROR"
-)
-
-// Alert represents a single alert event.
-type Alert struct {
-	Timestamp time.Time
-	Level     Level
-	Message   string
+// Result holds the diff between a baseline and a current scan.
+type Result struct {
 	NewPorts  []int
 	GonePorts []int
+	Changed   bool
 }
 
-// Notifier sends alerts to a destination.
+// Notifier sends alerts when port changes are detected.
 type Notifier interface {
-	Notify(a Alert) error
+	Notify(result Result) error
 }
 
-// StdoutNotifier writes alerts to an io.Writer (default: os.Stdout).
+// StdoutNotifier writes alerts to stdout (or a custom writer).
 type StdoutNotifier struct {
-	Writer io.Writer
+	out io.Writer
 }
 
-// NewStdoutNotifier creates a StdoutNotifier writing to stdout.
-func NewStdoutNotifier() *StdoutNotifier {
-	return &StdoutNotifier{Writer: os.Stdout}
+// NewStdoutNotifier creates a StdoutNotifier writing to out.
+// If out is nil, os.Stdout is used.
+func NewStdoutNotifier(out io.Writer) *StdoutNotifier {
+	if out == nil {
+		out = os.Stdout
+	}
+	return &StdoutNotifier{out: out}
 }
 
-// Notify formats and writes the alert to the configured writer.
-func (s *StdoutNotifier) Notify(a Alert) error {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("[%s] %s %s\n", a.Level, a.Timestamp.Format(time.RFC3339), a.Message))
-	if len(a.NewPorts) > 0 {
-		sb.WriteString(fmt.Sprintf("  NEW ports : %v\n", a.NewPorts))
+// Notify prints port change information to the configured writer.
+func (s *StdoutNotifier) Notify(result Result) error {
+	if !result.Changed {
+		return nil
 	}
-	if len(a.GonePorts) > 0 {
-		sb.WriteString(fmt.Sprintf("  GONE ports: %v\n", a.GonePorts))
+	if len(result.NewPorts) > 0 {
+		fmt.Fprintf(s.out, "ALERT: new ports detected: %v\n", result.NewPorts)
 	}
-	_, err := fmt.Fprint(s.Writer, sb.String())
-	return err
+	if len(result.GonePorts) > 0 {
+		fmt.Fprintf(s.out, "ALERT: ports no longer open: %v\n", result.GonePorts)
+	}
+	return nil
 }
 
-// Evaluate inspects a baseline.Diff and emits an alert via the notifier
-// when unexpected changes are detected. Returns true if an alert was sent.
-func Evaluate(n Notifier, diff baseline.Diff) (bool, error) {
-	if len(diff.New) == 0 && len(diff.Gone) == 0 {
-		return false, nil
+// Evaluate compares a current set of open ports against a baseline set.
+// It returns a Result describing what changed.
+func Evaluate(baseline, current []int) Result {
+	baseSet := toSet(baseline)
+	currSet := toSet(current)
+
+	var newPorts, gonePorts []int
+
+	for p := range currSet {
+		if !baseSet[p] {
+			newPorts = append(newPorts, p)
+		}
+	}
+	for p := range baseSet {
+		if !currSet[p] {
+			gonePorts = append(gonePorts, p)
+		}
 	}
 
-	lvl := LevelWarn
-	if len(diff.New) > 0 {
-		lvl = LevelError
-	}
+	sort.Ints(newPorts)
+	sort.Ints(gonePorts)
 
-	a := Alert{
-		Timestamp: time.Now(),
-		Level:     lvl,
-		Message:   "Port state change detected",
-		NewPorts:  diff.New,
-		GonePorts: diff.Gone,
+	return Result{
+		NewPorts:  newPorts,
+		GonePorts: gonePorts,
+		Changed:   len(newPorts) > 0 || len(gonePorts) > 0,
 	}
+}
 
-	if err := n.Notify(a); err != nil {
-		return false, fmt.Errorf("alert: notify: %w", err)
+func toSet(ports []int) map[int]bool {
+	s := make(map[int]bool, len(ports))
+	for _, p := range ports {
+		s[p] = true
 	}
-	return true, nil
+	return s
 }

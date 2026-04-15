@@ -1,88 +1,94 @@
 package alert_test
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	"github.com/user/portwatch/internal/alert"
-	"github.com/user/portwatch/internal/baseline"
 )
 
-// captureNotifier records the last alert it received.
-type captureNotifier struct {
-	Called bool
-	Last   alert.Alert
-}
-
-func (c *captureNotifier) Notify(a alert.Alert) error {
-	c.Called = true
-	c.Last = a
-	return nil
-}
-
 func TestEvaluate_NoChanges(t *testing.T) {
-	n := &captureNotifier{}
-	sentAlert, err := alert.Evaluate(n, baseline.Diff{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	result := alert.Evaluate([]int{22, 80}, []int{22, 80})
+	if result.Changed {
+		t.Error("expected no changes")
 	}
-	if sentAlert {
-		t.Error("expected no alert for empty diff")
+	if len(result.NewPorts) != 0 {
+		t.Errorf("expected no new ports, got %v", result.NewPorts)
 	}
-	if n.Called {
-		t.Error("notifier should not have been called")
+	if len(result.GonePorts) != 0 {
+		t.Errorf("expected no gone ports, got %v", result.GonePorts)
 	}
 }
 
 func TestEvaluate_NewPorts(t *testing.T) {
-	n := &captureNotifier{}
-	diff := baseline.Diff{New: []int{8080, 9090}}
-	sentAlert, err := alert.Evaluate(n, diff)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	result := alert.Evaluate([]int{22}, []int{22, 8080})
+	if !result.Changed {
+		t.Error("expected changes")
 	}
-	if !sentAlert {
-		t.Error("expected alert to be sent")
+	if len(result.NewPorts) != 1 || result.NewPorts[0] != 8080 {
+		t.Errorf("expected new port 8080, got %v", result.NewPorts)
 	}
-	if n.Last.Level != alert.LevelError {
-		t.Errorf("expected ERROR level, got %s", n.Last.Level)
-	}
-	if len(n.Last.NewPorts) != 2 {
-		t.Errorf("expected 2 new ports, got %d", len(n.Last.NewPorts))
+	if len(result.GonePorts) != 0 {
+		t.Errorf("expected no gone ports, got %v", result.GonePorts)
 	}
 }
 
 func TestEvaluate_GonePorts(t *testing.T) {
-	n := &captureNotifier{}
-	diff := baseline.Diff{Gone: []int{22}}
-	sentAlert, err := alert.Evaluate(n, diff)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	result := alert.Evaluate([]int{22, 3306}, []int{22})
+	if !result.Changed {
+		t.Error("expected changes")
 	}
-	if !sentAlert {
-		t.Error("expected alert to be sent")
+	if len(result.GonePorts) != 1 || result.GonePorts[0] != 3306 {
+		t.Errorf("expected gone port 3306, got %v", result.GonePorts)
 	}
-	if n.Last.Level != alert.LevelWarn {
-		t.Errorf("expected WARN level, got %s", n.Last.Level)
+}
+
+func TestEvaluate_BothChanges(t *testing.T) {
+	result := alert.Evaluate([]int{22, 3306}, []int{22, 9090})
+	if !result.Changed {
+		t.Error("expected changes")
+	}
+	if len(result.NewPorts) != 1 || result.NewPorts[0] != 9090 {
+		t.Errorf("unexpected new ports: %v", result.NewPorts)
+	}
+	if len(result.GonePorts) != 1 || result.GonePorts[0] != 3306 {
+		t.Errorf("unexpected gone ports: %v", result.GonePorts)
 	}
 }
 
 func TestStdoutNotifier_Output(t *testing.T) {
-	var buf strings.Builder
-	n := &alert.StdoutNotifier{Writer: &buf}
-	a := alert.Alert{
-		Level:    alert.LevelError,
-		Message:  "Port state change detected",
-		NewPorts: []int{4444},
+	var buf bytes.Buffer
+	n := alert.NewStdoutNotifier(&buf)
+
+	result := alert.Result{
+		NewPorts:  []int{8080},
+		GonePorts: []int{3306},
+		Changed:   true,
 	}
-	if err := n.Notify(a); err != nil {
+
+	if err := n.Notify(result); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	out := buf.String()
-	if !strings.Contains(out, "ERROR") {
-		t.Errorf("expected ERROR in output, got: %s", out)
+	if !strings.Contains(out, "8080") {
+		t.Errorf("expected 8080 in output, got: %s", out)
 	}
-	if !strings.Contains(out, "4444") {
-		t.Errorf("expected port 4444 in output, got: %s", out)
+	if !strings.Contains(out, "3306") {
+		t.Errorf("expected 3306 in output, got: %s", out)
+	}
+}
+
+func TestStdoutNotifier_NoOutputWhenUnchanged(t *testing.T) {
+	var buf bytes.Buffer
+	n := alert.NewStdoutNotifier(&buf)
+
+	result := alert.Result{Changed: false}
+	if err := n.Notify(result); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("expected no output for unchanged result, got: %s", buf.String())
 	}
 }
