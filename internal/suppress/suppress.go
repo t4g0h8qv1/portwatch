@@ -50,6 +50,22 @@ func (l *List) Add(port int, reason string, ttl time.Duration) error {
 	return l.save()
 }
 
+// Remove deletes any suppression entries for the given port and persists
+// the updated list to disk. It returns true if at least one entry was removed.
+func (l *List) Remove(port int) (bool, error) {
+	var remaining []Entry
+	for _, e := range l.Entries {
+		if e.Port != port {
+			remaining = append(remaining, e)
+		}
+	}
+	if len(remaining) == len(l.Entries) {
+		return false, nil
+	}
+	l.Entries = remaining
+	return true, l.save()
+}
+
 // IsSuppressed reports whether the given port has an active (non-expired)
 // suppression entry.
 func (l *List) IsSuppressed(port int) bool {
