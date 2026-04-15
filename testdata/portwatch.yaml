@@ -1,0 +1,11 @@
+# Example portwatch configuration used in integration tests and documentation.
+target: localhost
+ports: "22,80,443,8080-8090"
+baseline: testdata/baseline.json
+
+alert:
+  stdout: true
+
+scan:
+  timeout_ms: 500
+  concurrency: 50
