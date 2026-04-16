@@ -62,6 +62,21 @@ func TestResolve_CachesResult(t *testing.T) {
 	}
 }
 
+func TestResolve_CacheExpires(t *testing.T) {
+	calls := 0
+	r := resolve.New(50 * time.Millisecond)
+	r.SetLookup(func(_ context.Context, _ string) ([]string, error) {
+		calls++
+		return []string{"1.2.3.4"}, nil
+	})
+	r.Resolve(context.Background(), "example.com") //nolint:errcheck
+	time.Sleep(100 * time.Millisecond)
+	r.Resolve(context.Background(), "example.com") //nolint:errcheck
+	if calls != 2 {
+		t.Fatalf("expected 2 lookup calls after TTL expiry, got %d", calls)
+	}
+}
+
 func TestResolve_InvalidateClears(t *testing.T) {
 	calls := 0
 	r := resolve.New(time.Minute)
