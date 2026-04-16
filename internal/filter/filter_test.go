@@ -69,3 +69,15 @@ func TestFilter_AllDenied(t *testing.T) {
 		t.Errorf("expected empty slice, got %v", got)
 	}
 }
+
+func TestFilter_AllowListPortNotInInput(t *testing.T) {
+	// Ports in the allow list that are not present in the input should not
+	// appear in the output.
+	ports := []int{22, 80}
+	opts := Options{Allow: []int{80, 443}}
+	got := Filter(ports, opts)
+	want := []int{80}
+	if !reflect.DeepEqual(sorted(got), want) {
+		t.Errorf("expected %v, got %v", want, got)
+	}
+}
