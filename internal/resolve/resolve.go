@@ -49,6 +49,10 @@ func (r *Resolver) Resolve(ctx context.Context, host string) ([]string, error) {
 		return nil, fmt.Errorf("resolve %q: %w", host, err)
 	}
 
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("resolve %q: no addresses returned", host)
+	}
+
 	if r.ttl > 0 {
 		r.cache[host] = entry{addrs: addrs, expires: time.Now().Add(r.ttl)}
 	}
@@ -61,9 +65,6 @@ func (r *Resolver) First(ctx context.Context, host string) (string, error) {
 	addrs, err := r.Resolve(ctx, host)
 	if err != nil {
 		return "", err
-	}
-	if len(addrs) == 0 {
-		return "", fmt.Errorf("resolve %q: no addresses returned", host)
 	}
 	return addrs[0], nil
 }
