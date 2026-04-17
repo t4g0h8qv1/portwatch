@@ -32,9 +32,14 @@ func TestParseFormat_Valid(t *testing.T) {
 }
 
 func TestParseFormat_Invalid(t *testing.T) {
-	_, err := output.ParseFormat("xml")
-	if err == nil {
-		t.Fatal("expected error for unknown format, got nil")
+	invalidFormats := []string{"xml", "csv", "yaml", "html"}
+	for _, input := range invalidFormats {
+		t.Run(input, func(t *testing.T) {
+			_, err := output.ParseFormat(input)
+			if err == nil {
+				t.Fatalf("expected error for unknown format %q, got nil", input)
+			}
+		})
 	}
 }
 
