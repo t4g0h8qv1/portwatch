@@ -20,13 +20,13 @@ type Config struct {
 
 // Alert configures notification behaviour.
 type Alert struct {
-	Stdout bool   `yaml:"stdout"`
+	Stdout  bool   `yaml:"stdout"`
 	Webhook string `yaml:"webhook"`
 }
 
 // ScanOpts controls scanner tuning parameters.
 type ScanOpts struct {
-	TimeoutMs  int `yaml:"timeout_ms"`
+	TimeoutMs   int `yaml:"timeout_ms"`
 	Concurrency int `yaml:"concurrency"`
 }
 
@@ -64,4 +64,14 @@ func (c *Config) validate() error {
 		c.Scan.Concurrency = 100
 	}
 	return nil
+}
+
+// HasWebhook reports whether a webhook URL has been configured.
+func (a *Alert) HasWebhook() bool {
+	return a.Webhook != ""
+}
+
+// IsAlertEnabled reports whether at least one alert channel is configured.
+func (a *Alert) IsAlertEnabled() bool {
+	return a.Stdout || a.HasWebhook()
 }
