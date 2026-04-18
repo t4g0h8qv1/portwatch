@@ -1,5 +1,4 @@
-// Package portwatch wires together scanning, baselining, alerting, and
-// notification into a single reusable Run function.
+// Package portwatch wires together scanning, baseline diffing, and notification.
 package portwatch
 
 import (
@@ -7,70 +6,53 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/example/portwatch/internal/alert"
 	"github.com/example/portwatch/internal/baseline"
-	"github.com/example/portwatch/internal/history"
 	"github.com/example/portwatch/internal/notify"
+	"github.com/example/portwatch/internal/portdiff"
 	"github.com/example/portwatch/internal/scanner"
 )
 
-// Config holds the runtime parameters for a single watch cycle.
+// Config holds the runtime configuration for a single watch cycle.
 type Config struct {
-	Target       string
-	Ports        []int
+	Target      string
+	Ports       []int
 	BaselinePath string
-	HistoryPath  string
-	Timeout      time.Duration
-	Notifier     notify.Notifier
+	Timeout     time.Duration
+	Notifier    notify.Notifier
 }
 
-// Result is returned by Run after one scan cycle completes.
-type Result struct {
-	Open    []int
-	Added   []int
-	Removed []int
-	ScannedAt time.Time
-}
-
-// Run performs one full scan cycle: scan → diff against baseline → notify.
-func Run(ctx context.Context, cfg Config) (Result, error) {
-	open, err := scanner.OpenPorts(ctx, cfg.Target, cfg.Ports, cfg.Timeout)
+// Run performs one scan cycle: scan ports, compare against baseline,
+// notify on changes, and persist the updated baseline.
+func Run(ctx context.Context, cfg Config) error {
+	open, err := scanner.OpenPorts(cfg.Target, cfg.Ports, cfg.Timeout)
 	if err != nil {
-		return Result{}, fmt.Errorf("scan: %w", err)
+		return fmt.Errorf("scan: %w", err)
 	}
 
-	bl, err := baseline.Load(cfg.BaselinePath)
+	b, err := baseline.Load(cfg.BaselinePath)
 	if err != nil {
-		bl = baseline.New(cfg.Target, open)
-		if saveErr := bl.Save(cfg.BaselinePath); saveErr != nil {
-			return Result{}, fmt.Errorf("save baseline: %w", saveErr)
+		// No baseline yet — save current scan as baseline.
+		b = baseline.New(cfg.Target, open)
+		if saveErr := b.Save(cfg.BaselinePath); saveErr != nil {
+			return fmt.Errorf("save baseline: %w", saveErr)
 		}
+		return nil
 	}
 
-	evt := alert.Evaluate(bl, open)
-
-	if len(evt.Added) > 0 || len(evt.Removed) > 0 {
-		if cfg.Notifier != nil {
-			if nErr := cfg.Notifier.Notify(ctx, evt); nErr != nil {
-				return Result{}, fmt.Errorf("notify: %w", nErr)
-			}
-		}
-		bl = baseline.New(cfg.Target, open)
-		if saveErr := bl.Save(cfg.BaselinePath); saveErr != nil {
-			return Result{}, fmt.Errorf("update baseline: %w", saveErr)
-		}
+	diff := portdiff.Compute(b.Ports, open)
+	if diff.Empty() {
+		return nil
 	}
 
-	if cfg.HistoryPath != "" {
-		if hErr := history.Record(cfg.HistoryPath, cfg.Target, open); hErr != nil {
-			return Result{}, fmt.Errorf("history: %w", hErr)
-		}
+	msg := portdiff.Summary(diff)
+	if notifyErr := cfg.Notifier.Notify(ctx, msg); notifyErr != nil {
+		return fmt.Errorf("notify: %w", notifyErr)
 	}
 
-	return Result{
-		Open:      open,
-		Added:     evt.Added,
-		Removed:   evt.Removed,
-		ScannedAt: time.Now(),
-	}, nil
+	b.Ports = open
+	b.UpdatedAt = time.Now()
+	if saveErr := b.Save(cfg.BaselinePath); saveErr != nil {
+		return fmt.Errorf("update baseline: %w", saveErr)
+	}
+	return nil
 }

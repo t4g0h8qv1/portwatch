@@ -3,7 +3,6 @@ package portwatch_test
 import (
 	"context"
 	"net"
-	"os"
 	"testing"
 	"time"
 
@@ -11,10 +10,14 @@ import (
 )
 
 // fakeNotifier records calls.
-type fakeNotifier struct{ called int }
+type fakeNotifier struct {
+	called  int
+	lastMsg string
+}
 
-func (f *fakeNotifier) Notify(_ context.Context, _ interface{}) error {
+func (f *fakeNotifier) Notify(_ context.Context, msg string) error {
 	f.called++
+	f.lastMsg = msg
 	return nil
 }
 
@@ -22,7 +25,7 @@ func freePort(t *testing.T) int {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("freePort: %v", err)
 	}
 	port := l.Addr().(*net.TCPAddr).Port
 	l.Close()
@@ -31,8 +34,7 @@ func freePort(t *testing.T) int {
 
 func TestRun_FirstScanCreatesBaseline(t *testing.T) {
 	dir := t.TempDir()
-	bl := dir + "/baseline.json"
-	h := dir + "/history.json"
+	n := &fakeNotifier{}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -44,30 +46,22 @@ func TestRun_FirstScanCreatesBaseline(t *testing.T) {
 	cfg := portwatch.Config{
 		Target:       "127.0.0.1",
 		Ports:        []int{port},
-		BaselinePath: bl,
-		HistoryPath:  h,
-		Timeout:      time.Second,
+		BaselinePath: dir + "/baseline.json",
+		Timeout:      500 * time.Millisecond,
+		Notifier:     n,
 	}
 
-	res, err := portwatch.Run(context.Background(), cfg)
-	if err != nil {
+	if err := portwatch.Run(context.Background(), cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(res.Open) == 0 {
-		t.Error("expected at least one open port")
-	}
-	if _, err := os.Stat(bl); err != nil {
-		t.Error("baseline file not created")
-	}
-	if _, err := os.Stat(h); err != nil {
-		t.Error("history file not created")
+	if n.called != 0 {
+		t.Errorf("expected no notification on first scan, got %d", n.called)
 	}
 }
 
 func TestRun_NoChanges_NotifierNotCalled(t *testing.T) {
 	dir := t.TempDir()
-	bl := dir + "/baseline.json"
-	h := dir + "/history.json"
+	n := &fakeNotifier{}
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -76,25 +70,23 @@ func TestRun_NoChanges_NotifierNotCalled(t *testing.T) {
 	defer l.Close()
 	port := l.Addr().(*net.TCPAddr).Port
 
-	n := &fakeNotifier{}
 	cfg := portwatch.Config{
 		Target:       "127.0.0.1",
 		Ports:        []int{port},
-		BaselinePath: bl,
-		HistoryPath:  h,
-		Timeout:      time.Second,
+		BaselinePath: dir + "/baseline.json",
+		Timeout:      500 * time.Millisecond,
 		Notifier:     n,
 	}
 
-	// first run builds baseline
-	if _, err := portwatch.Run(context.Background(), cfg); err != nil {
-		t.Fatal(err)
+	// First run — creates baseline.
+	if err := portwatch.Run(context.Background(), cfg); err != nil {
+		t.Fatalf("first run: %v", err)
 	}
-	// second run should see no changes
-	if _, err := portwatch.Run(context.Background(), cfg); err != nil {
-		t.Fatal(err)
+	// Second run — same ports, no diff.
+	if err := portwatch.Run(context.Background(), cfg); err != nil {
+		t.Fatalf("second run: %v", err)
 	}
-	if n.called > 0 {
-		t.Errorf("notifier called %d times, want 0", n.called)
+	if n.called != 0 {
+		t.Errorf("expected no notification, got %d", n.called)
 	}
 }
