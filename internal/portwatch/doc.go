@@ -1,14 +1,10 @@
 // Package portwatch provides the top-level orchestration loop for portwatch.
 //
-// Run performs one complete scan cycle:
+// Run performs a single scan-diff-notify cycle:
 //
-//  1. Scan the target host for open ports using [scanner.OpenPorts].
-//  2. Load (or create) a [baseline.Baseline] from disk.
-//  3. Diff the current open ports against the baseline via [alert.Evaluate].
-//  4. If changes are detected, invoke the configured [notify.Notifier] and
-//     persist an updated baseline.
-//  5. Append the scan result to the [history] log.
-//
-// Callers are responsible for scheduling repeated calls to Run; see the
-// [schedule] package for a helper that drives periodic execution.
+//  1. Scan the target host for open ports.
+//  2. Load the persisted baseline (or create one on first run).
+//  3. Compute a diff between the baseline and current scan.
+//  4. Notify via the configured Notifier if changes are detected.
+//  5. Persist the updated baseline for the next cycle.
 package portwatch
