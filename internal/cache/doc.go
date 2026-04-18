@@ -14,4 +14,6 @@
 //
 // Entries that have exceeded their TTL are considered expired and will not be
 // returned by Get. Call Prune periodically to reclaim memory.
+//
+// Cache is safe for concurrent use by multiple goroutines.
 package cache
