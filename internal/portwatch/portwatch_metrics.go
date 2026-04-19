@@ -5,52 +5,52 @@ import (
 	"time"
 )
 
-// Metrics holds runtime counters for a portwatch run.
+// Metrics tracks runtime counters for a portwatch runner.
 type Metrics struct {
-	mu sync.Mutex
-
-	ScansTotal    int
-	AlertsTotal   int
-	ErrorsTotal   int
-	LastScanAt    time.Time
-	LastAlertAt   time.Time
-	OpenPortCount int
+	mu           sync.Mutex
+	Scans        int
+	Alerts       int
+	Errors       int
+	ConsecErrors int
+	LastScanAt   time.Time
+	LastError    error
 }
 
-// RecordScan updates scan-related counters.
-func (m *Metrics) RecordScan(openPorts int) {
+// RecordScan increments the scan counter and resets consecutive errors.
+func (m *Metrics) RecordScan() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.ScansTotal++
+	m.Scans++
+	m.ConsecErrors = 0
 	m.LastScanAt = time.Now()
-	m.OpenPortCount = openPorts
 }
 
 // RecordAlert increments the alert counter.
 func (m *Metrics) RecordAlert() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.AlertsTotal++
-	m.LastAlertAt = time.Now()
+	m.Alerts++
 }
 
-// RecordError increments the error counter.
-func (m *Metrics) RecordError() {
+// RecordError increments error counters and stores the last error.
+func (m *Metrics) RecordError(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.ErrorsTotal++
+	m.Errors++
+	m.ConsecErrors++
+	m.LastError = err
 }
 
-// Snapshot returns a copy of the current metrics.
+// Snapshot returns a copy of the current metrics (safe for reading).
 func (m *Metrics) Snapshot() Metrics {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return Metrics{
-		ScansTotal:    m.ScansTotal,
-		AlertsTotal:   m.AlertsTotal,
-		ErrorsTotal:   m.ErrorsTotal,
-		LastScanAt:    m.LastScanAt,
-		LastAlertAt:   m.LastAlertAt,
-		OpenPortCount: m.OpenPortCount,
+		Scans:        m.Scans,
+		Alerts:       m.Alerts,
+		Errors:       m.Errors,
+		ConsecErrors: m.ConsecErrors,
+		LastScanAt:   m.LastScanAt,
+		LastError:    m.LastError,
 	}
 }

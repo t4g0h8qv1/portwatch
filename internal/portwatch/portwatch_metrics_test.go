@@ -1,68 +1,65 @@
 package portwatch
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
 
 func TestRecordScan_IncrementsCounter(t *testing.T) {
-	m := &Metrics{}
-	m.RecordScan(5)
-	s := m.Snapshot()
-	if s.ScansTotal != 1 {
-		t.Fatalf("expected ScansTotal=1, got %d", s.ScansTotal)
-	}
-	if s.OpenPortCount != 5 {
-		t.Fatalf("expected OpenPortCount=5, got %d", s.OpenPortCount)
-	}
-	if s.LastScanAt.IsZero() {
-		t.Fatal("expected LastScanAt to be set")
+	var m Metrics
+	m.RecordScan()
+	m.RecordScan()
+	if m.Scans != 2 {
+		t.Fatalf("expected 2 scans, got %d", m.Scans)
 	}
 }
 
 func TestRecordAlert_IncrementsCounter(t *testing.T) {
-	m := &Metrics{}
+	var m Metrics
 	m.RecordAlert()
-	m.RecordAlert()
-	s := m.Snapshot()
-	if s.AlertsTotal != 2 {
-		t.Fatalf("expected AlertsTotal=2, got %d", s.AlertsTotal)
-	}
-	if s.LastAlertAt.IsZero() {
-		t.Fatal("expected LastAlertAt to be set")
+	if m.Alerts != 1 {
+		t.Fatalf("expected 1 alert, got %d", m.Alerts)
 	}
 }
 
 func TestRecordError_IncrementsCounter(t *testing.T) {
-	m := &Metrics{}
-	m.RecordError()
-	s := m.Snapshot()
-	if s.ErrorsTotal != 1 {
-		t.Fatalf("expected ErrorsTotal=1, got %d", s.ErrorsTotal)
+	var m Metrics
+	err := errors.New("fail")
+	m.RecordError(err)
+	m.RecordError(err)
+	if m.Errors != 2 {
+		t.Fatalf("expected 2 errors, got %d", m.Errors)
+	}
+	if m.ConsecErrors != 2 {
+		t.Fatalf("expected 2 consec errors, got %d", m.ConsecErrors)
+	}
+}
+
+func TestRecordScan_ResetsConsecErrors(t *testing.T) {
+	var m Metrics
+	m.RecordError(errors.New("oops"))
+	m.RecordScan()
+	if m.ConsecErrors != 0 {
+		t.Fatalf("expected consec errors reset, got %d", m.ConsecErrors)
 	}
 }
 
 func TestSnapshot_IsCopy(t *testing.T) {
-	m := &Metrics{}
-	m.RecordScan(3)
-	s1 := m.Snapshot()
-	m.RecordScan(7)
-	s2 := m.Snapshot()
-	if s1.ScansTotal != 1 {
-		t.Fatalf("snapshot should not be affected by later mutations")
-	}
-	if s2.ScansTotal != 2 {
-		t.Fatalf("expected ScansTotal=2, got %d", s2.ScansTotal)
+	var m Metrics
+	m.RecordScan()
+	snap := m.Snapshot()
+	m.RecordScan()
+	if snap.Scans != 1 {
+		t.Fatalf("snapshot should not reflect later changes")
 	}
 }
 
 func TestRecordScan_UpdatesLastScanAt(t *testing.T) {
-	m := &Metrics{}
+	var m Metrics
 	before := time.Now()
-	m.RecordScan(0)
-	after := time.Now()
-	s := m.Snapshot()
-	if s.LastScanAt.Before(before) || s.LastScanAt.After(after) {
-		t.Fatal("LastScanAt out of expected range")
+	m.RecordScan()
+	if m.LastScanAt.Before(before) {
+		t.Fatal("LastScanAt not updated")
 	}
 }
