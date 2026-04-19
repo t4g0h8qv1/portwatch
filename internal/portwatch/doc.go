@@ -1,10 +1,13 @@
-// Package portwatch provides the top-level orchestration loop for portwatch.
+// Package portwatch provides the core scan-diff-notify loop used by the
+// portwatch CLI. It ties together scanning, baseline comparison, and
+// notification into a single Run call suitable for both one-shot and
+// scheduled execution.
 //
-// Run performs a single scan-diff-notify cycle:
+// Basic usage:
 //
-//  1. Scan the target host for open ports.
-//  2. Load the persisted baseline (or create one on first run).
-//  3. Compute a diff between the baseline and current scan.
-//  4. Notify via the configured Notifier if changes are detected.
-//  5. Persist the updated baseline for the next cycle.
+//	err := portwatch.Run(ctx, portwatch.Config{
+//		Host:     "192.168.1.1",
+//		Ports:    ports,
+//		Baseline: "/var/lib/portwatch/baseline.json",
+//	}, myNotifier)
 package portwatch

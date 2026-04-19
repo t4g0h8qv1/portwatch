@@ -7,52 +7,54 @@ import (
 )
 
 func TestHasChanges_True(t *testing.T) {
-	e := ChangeEvent{Host: "localhost", Opened: []int{8080}}
-	if !e.HasChanges() {
-		t.Fatal("expected HasChanges to be true")
+	e := Event{Host: "h", Opened: []int{80}}
+	if !HasChanges(e) {
+		t.Fatal("expected changes")
 	}
 }
 
 func TestHasChanges_False(t *testing.T) {
-	e := ChangeEvent{Host: "localhost"}
-	if e.HasChanges() {
-		t.Fatal("expected HasChanges to be false")
+	e := Event{Host: "h"}
+	if HasChanges(e) {
+		t.Fatal("expected no changes")
 	}
 }
 
 func TestSummary_NoChanges(t *testing.T) {
-	e := ChangeEvent{Host: "host1"}
-	got := e.Summary()
-	if got != "host1: no changes" {
-		t.Fatalf("unexpected summary: %q", got)
+	e := Event{Host: "localhost"}
+	if !strings.Contains(Summary(e), "no changes") {
+		t.Fatalf("unexpected summary: %s", Summary(e))
 	}
 }
 
 func TestSummary_Opened(t *testing.T) {
-	e := ChangeEvent{Host: "host1", Opened: []int{22, 80}}
-	got := e.Summary()
-	if !strings.Contains(got, "2 opened") {
-		t.Fatalf("expected '2 opened' in summary, got: %q", got)
+	e := Event{Host: "localhost", Opened: []int{443}}
+	s := Summary(e)
+	if !strings.Contains(s, "+1") {
+		t.Fatalf("unexpected summary: %s", s)
 	}
 }
 
 func TestSummary_Both(t *testing.T) {
-	e := ChangeEvent{Host: "host1", Opened: []int{443}, Closed: []int{8080}}
-	got := e.Summary()
-	if !strings.Contains(got, "1 opened") || !strings.Contains(got, "1 closed") {
-		t.Fatalf("unexpected summary: %q", got)
+	e := Event{Host: "h", Opened: []int{80, 443}, Closed: []int{8080}}
+	s := Summary(e)
+	if !strings.Contains(s, "+2") || !strings.Contains(s, "-1") {
+		t.Fatalf("unexpected summary: %s", s)
 	}
 }
 
 func TestWriteEvent_Output(t *testing.T) {
 	var buf bytes.Buffer
-	e := ChangeEvent{Host: "myhost", Opened: []int{9090}, Closed: []int{3306}}
+	e := Event{Host: "myhost", Opened: []int{22}, Closed: []int{8080}}
 	WriteEvent(&buf, e)
 	out := buf.String()
-	if !strings.Contains(out, "+ 9090") {
-		t.Errorf("expected opened port in output, got: %q", out)
+	if !strings.Contains(out, "myhost") {
+		t.Error("missing host")
 	}
-	if !strings.Contains(out, "- 3306") {
-		t.Errorf("expected closed port in output, got: %q", out)
+	if !strings.Contains(out, "+ 22") {
+		t.Error("missing opened port")
+	}
+	if !strings.Contains(out, "- 8080") {
+		t.Error("missing closed port")
 	}
 }

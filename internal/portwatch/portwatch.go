@@ -1,4 +1,4 @@
-// Package portwatch wires together scanning, baselining, and alerting.
+// Package portwatch orchestrates the core scan-diff-notify loop.
 package portwatch
 
 import (
@@ -6,42 +6,44 @@ import (
 	"fmt"
 
 	"github.com/example/portwatch/internal/baseline"
-	"github.com/example/portwatch/internal/notify"
-	"github.com/example/portwatch/internal/portdiff"
 	"github.com/example/portwatch/internal/scanner"
 )
 
-// Config holds the runtime options for a single watch run.
-type Config struct {
-	Target      string
-	Ports       []int
-	BaselinePath string
-	Notifier    notify.Notifier
+// Notifier is called when port changes are detected.
+type Notifier interface {
+	Notify(ctx context.Context, event Event) error
 }
 
-// Run performs one scan cycle: scan ports, compare against baseline,
-// notify on changes, and persist an updated baseline.
-func Run(ctx context.Context, cfg Config) error {
-	open, err := scanner.OpenPorts(ctx, cfg.Target, cfg.Ports)
+// Config holds the runtime configuration for a single watch target.
+type Config struct {
+	Host     string
+	Ports    []int
+	Baseline string // path to baseline file
+}
+
+// Run performs one scan cycle: scan → diff → notify.
+func Run(ctx context.Context, cfg Config, n Notifier) error {
+	open, err := scanner.OpenPorts(cfg.Host, cfg.Ports)
 	if err != nil {
 		return fmt.Errorf("scan: %w", err)
 	}
 
-	b, err := baseline.Load(cfg.BaselinePath)
+	bl, err := baseline.Load(cfg.Baseline)
 	if err != nil {
-		// First run — save current state as baseline.
-		b = baseline.New(cfg.Target, open)
-		return b.Save(cfg.BaselinePath)
+		// First run — save baseline and return.
+		bl = baseline.New(cfg.Host, open)
+		return bl.Save(cfg.Baseline)
 	}
 
-	diff := portdiff.Compute(b.Ports, open)
-	if diff.HasChanges() {
-		msg := portdiff.Summary(diff)
-		if notifyErr := cfg.Notifier.Notify(ctx, msg); notifyErr != nil {
-			return fmt.Errorf("notify: %w", notifyErr)
-		}
+	ev := buildEvent(cfg.Host, bl.Ports, open)
+	if !HasChanges(ev) {
+		return nil
 	}
 
-	b.Ports = open
-	return b.Save(cfg.BaselinePath)
+	if err := n.Notify(ctx, ev); err != nil {
+		return fmt.Errorf("notify: %w", err)
+	}
+
+	bl.Ports = open
+	return bl.Save(cfg.Baseline)
 }

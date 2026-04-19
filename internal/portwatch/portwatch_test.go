@@ -2,28 +2,24 @@ package portwatch_test
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/example/portwatch/internal/portwatch"
 )
 
-// fakeNotifier records calls.
-type fakeNotifier struct {
-	Called  bool
-	Message string
+type captureNotifier struct {
+	events []portwatch.Event
 }
 
-func (f *fakeNotifier) Notify(_ context.Context, msg string) error {
-	f.Called = true
-	f.Message = msg
+func (c *captureNotifier) Notify(_ context.Context, e portwatch.Event) error {
+	c.events = append(c.events, e)
 	return nil
 }
 
-// freePort returns an OS-assigned free TCP port.
 func freePort(t *testing.T) int {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -37,61 +33,61 @@ func freePort(t *testing.T) int {
 
 func TestRun_FirstScanCreatesBaseline(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "baseline.json")
-	n := &fakeNotifier{}
-
+	bl := filepath.Join(dir, "baseline.json")
 	cfg := portwatch.Config{
-		Target:       "127.0.0.1",
-		Ports:        []int{freePort(t)},
-		BaselinePath: path,
-		Notifier:     n,
+		Host:     "127.0.0.1",
+		Ports:    []int{freePort(t)},
+		Baseline: bl,
 	}
-
-	if err := portwatch.Run(context.Background(), cfg); err != nil {
+	n := &captureNotifier{}
+	if err := portwatch.Run(context.Background(), cfg, n); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := os.Stat(path); err != nil {
+	if _, err := os.Stat(bl); err != nil {
 		t.Fatal("baseline file not created")
 	}
-	if n.Called {
+	if len(n.events) != 0 {
 		t.Fatal("notifier should not be called on first run")
 	}
 }
 
 func TestRun_NoChanges_NotifierNotCalled(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = strconv.Itoa(port)
+
 	dir := t.TempDir()
-	path := filepath.Join(dir, "baseline.json")
-	n := &fakeNotifier{}
-
 	cfg := portwatch.Config{
-		Target:       "127.0.0.1",
-		Ports:        []int{freePort(t)},
-		BaselinePath: path,
-		Notifier:     n,
+		Host:     "127.0.0.1",
+		Ports:    []int{port},
+		Baseline: filepath.Join(dir, "bl.json"),
 	}
-
+	n := &captureNotifier{}
 	// First run creates baseline.
-	if err := portwatch.Run(context.Background(), cfg); err != nil {
+	if err := portwatch.Run(context.Background(), cfg, n); err != nil {
 		t.Fatal(err)
 	}
-	// Second run with same (closed) ports — no diff.
-	if err := portwatch.Run(context.Background(), cfg); err != nil {
+	// Second run — same ports open.
+	if err := portwatch.Run(context.Background(), cfg, n); err != nil {
 		t.Fatal(err)
 	}
-	if n.Called {
-		t.Fatalf("notifier called unexpectedly: %s", n.Message)
+	if len(n.events) != 0 {
+		t.Fatalf("expected 0 notifications, got %d", len(n.events))
 	}
 }
 
 func TestRun_ScanError_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	n := &fakeNotifier{}
 	cfg := portwatch.Config{
-		Target:       fmt.Sprintf("%%invalid%%"),
-		Ports:        []int{80},
-		BaselinePath: filepath.Join(dir, "b.json"),
-		Notifier:     n,
+		Host:     "256.256.256.256", // invalid
+		Ports:    []int{80},
+		Baseline: filepath.Join(t.TempDir(), "bl.json"),
 	}
-	// An invalid target should propagate a scan error.
-	_ = portwatch.Run(context.Background(), cfg) // may or may not error depending on OS
+	n := &captureNotifier{}
+	if err := portwatch.Run(context.Background(), cfg, n); err == nil {
+		t.Fatal("expected error for invalid host")
+	}
 }
