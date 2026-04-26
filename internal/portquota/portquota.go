@@ -46,3 +46,17 @@ func (q *Quota) Max() int {
 func (q *Quota) Remaining(openPorts []int) int {
 	return q.max - len(openPorts)
 }
+
+// CheckCount is like Check but accepts a pre-computed port count instead of a
+// slice. This is useful when the caller already knows the number of open ports
+// without needing to build a full slice (e.g. when reading from a summary
+// metric). count must be non-negative.
+func (q *Quota) CheckCount(count int) error {
+	if count < 0 {
+		return fmt.Errorf("portquota: count must be non-negative, got %d", count)
+	}
+	if count > q.max {
+		return fmt.Errorf("%w: %d open ports found, limit is %d", ErrQuotaExceeded, count, q.max)
+	}
+	return nil
+}
